@@ -10,16 +10,14 @@ import sys
 import os
 import time
 import re
-import fiona
+from geopandas import GeoDataFrame
 from dxfwrite import DXFEngine as dxf
+from Shapely.Geometry import Polyline
 
 class PolylineLabels:
     def __init__(self):
-        self.dataPath=''
         self.polylineFeatures=''
         self.polylineCAD=''
-        self.labelFeatures=''
-
 
     def dataConfig(self):
         print('Configuring Data Paths...')
@@ -32,54 +30,48 @@ class PolylineLabels:
             time.sleep(5)
             exit()
 
-        self.dataPath=data_path
-        self.polylineFeatures=os.path.join(data_path, sys.argv[1])
+        self.polylineFeatures=os.path.join(data_path, sys.argv[1]+'.shp')
         if not os.path.exists(self.polylineFeatures):
             raise ValueError('Polyline Feature Class Not Found')
-        self.polylineCAD=os.path.join(data_path, '{}_CAD.dxf'.format(sys.argv[1][:-4]))
+        self.polylineCAD=os.path.join(data_path, '{}_CAD.dxf'.format(sys.argv[1]))
         if os.path.exists(self.polylineCAD):
             os.remove(self.polylineCAD)
-        self.labelFeatures=os.path.join(data_path, '{}_Labels.shp'.format(sys.argv[1][:-4]))
-        if os.path.exists(self.labelFeatures):
-            os.remove(self.labelFeatures)
 
 
+    def writeCAD(self, value, geometry):
+        polyline=Polyline(geometry)
 
-    def createPolylineCAD(self):
-        print('Creating The Polyline CAD...')
+        #INCLUDE CODE TO PREVENT ADDING LAYERS EVERYTIME THE FUNCTION IS CALLED
 
-        with fiona.drivers():
-            with fiona.open(self.polylineFeatures) as src:
-                pat='utm'
-                pattern=re.compile(pat)
-                hit=re.search(pattern, src.crs)
-                if hit==None:
-                    raise ValueError('Reproject Polyline Features To UTM')
-
-            with dxfwrite.open(self.polylineCAD, 'w') as sink:
-                for rec in src:
-                    sink.write(rec)
+        drawing = dxf.drawing(self.polylineCAD)
+        drawing.add_layer('POLYLINES', color=2)
+        drawing.add_layer('LABELS', color=2)
+        drawing.add(dxf.line((0, 0), (10, 0), layer='POLYLINES'))
+        drawing.add(dxf.text(value, insert=(polyline.centroid), layer='LABELS'))
+        drawing.save()
 
 
-    def createCentroidFeatures(self):
-        print('Calculating Centroids...')
+    def getData(self):
+        print('Reading Polyline Feature Class...')
 
-
-
-
-    def createLabelCAD(self):
-        print('Creating The Labels CAD...')
+        with GeoDataFrame.from_file(self.polylineFeatures) as gdf:
+            gdf=gdf[sys.argv[2], geom]
+            match=re.search('UTM', str(gdf.crs))
+            if not match==None:
+                for feature in gdf:
+                    writeCAD(feature[1], feature[2])
+            else:
+                print('Please Use Feature Class With A Projected Coordinate Reference System')
+                raise ValueError('Unsupported CRS!')
 
 
 def main():
     Labels=PolylineLabels()
     Labels.dataConfig()
-    Labels.createPolylineCAD()
-    Labels.createCentroidFeatures()
-    Labels.createLabelCAD()
+    Labels.getData()
 
 if __name__ == '__main__':
-    if len(sys.argv)==2:
+    if len(sys.argv)==3:
         main()
     else:
         print('Run Tool As: python PolylineLabels [Polyline Feature Class]')
