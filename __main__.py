@@ -6,64 +6,60 @@
 # Copyright:   (c) Moha 2017
 # Status:      <Draft>
 #-------------------------------------------------------------------------------
-import sys
+import argparse
 import os
 import time
-import re
-from geopandas import GeoDataFrame
+from pyproj import Proj
+from geopandas import GeoDataFrame as gdf
 from dxfwrite import DXFEngine as dxf
-from Shapely.Geometry import Polyline
+from Shapely.Geometry import LineString
 
 class PolylineLabels:
     def __init__(self):
-        self.polylineFeatures=''
-        self.polylineCAD=''
+        self.dataPath=os.path.join(os.path.dirname(__file__), args.Data_Folder)
+        self.polylineFeatures=os.path.join(self.dataPath, args.Input_File)
+        self.polylineCAD=os.path.join(self.dataPath, args.Input_File.replace('shp', 'dxf'))
+        self.valueColumn=args.Field_Name
+        self.UTMZone=args.UTM_Zone
 
     def dataConfig(self):
-        print('Configuring Data Paths...')
+        print('Validating Data Paths...')
 
-        data_path=os.path.join(os.path.dirname(__file__), 'Data')
-        if not os.path.exists(data_path):
-            os.mkdir(data_path)
-            print('Please Copy Polyline Feature Class To: {}'.format(os.path.abspath(data_path)))
+        if not os.path.exists(self.dataPath):
+            os.mkdir(self.dataPath)
+            print('Please Copy Polyline Feature Class To: {}'.format(os.path.abspath(self.dataPath)))
             print('Tool Will Exit In Five Seconds')
             time.sleep(5)
             exit()
-
-        self.polylineFeatures=os.path.join(data_path, sys.argv[1]+'.shp')
         if not os.path.exists(self.polylineFeatures):
             raise ValueError('Polyline Feature Class Not Found')
-        self.polylineCAD=os.path.join(data_path, '{}_CAD.dxf'.format(sys.argv[1]))
         if os.path.exists(self.polylineCAD):
             os.remove(self.polylineCAD)
 
-
-    def writeCAD(self, value, geometry):
-        polyline=Polyline(geometry)
-
-        #INCLUDE CODE TO PREVENT ADDING LAYERS EVERYTIME THE FUNCTION IS CALLED
+    def writeCAD(self, fid, value, coords):
+        print('Writing Feature With ID: {}...'.format(fid))
 
         drawing = dxf.drawing(self.polylineCAD)
-        drawing.add_layer('POLYLINES', color=2)
-        drawing.add_layer('LABELS', color=2)
-        drawing.add(dxf.line((0, 0), (10, 0), layer='POLYLINES'))
-        drawing.add(dxf.text(value, insert=(polyline.centroid), layer='LABELS'))
-        drawing.save()
+        if fid==0:
+            drawing.add_layer('POLYLINES', color=2)
+            drawing.add_layer('LABELS', color=2)
 
+        drawing.add(dxf.polyline(coords, layer='POLYLINES'))
+        drawing.add(dxf.text(value, insert=LineString(coords).centroid, layer='LABELS'))
+        drawing.save()
 
     def getData(self):
         print('Reading Polyline Feature Class...')
 
-        with GeoDataFrame.from_file(self.polylineFeatures) as gdf:
-            gdf=gdf[sys.argv[2], geom]
-            match=re.search('UTM', str(gdf.crs))
-            if not match==None:
-                for feature in gdf:
-                    writeCAD(feature[1], feature[2])
-            else:
-                print('Please Use Feature Class With A Projected Coordinate Reference System')
-                raise ValueError('Unsupported CRS!')
+        UTM=Proj()
+        with gdf.from_file(self.polylineFeatures) as df:
+            df.to_crs(UTM)
+            for rec in df.iterfeatures():
+                fid, value, coords=rec['id'], rec['properties'][self.valueColumn], rec['geometry']['coordinates']
+                writeCAD(fid, value, coords)
 
+        print('Script Completed')
+        print('Output File: {}'.format(os.path.abspath(self.polylineCAD)))
 
 def main():
     Labels=PolylineLabels()
@@ -71,9 +67,10 @@ def main():
     Labels.getData()
 
 if __name__ == '__main__':
-    if len(sys.argv)==3:
-        main()
-    else:
-        print('Run Tool As: python PolylineLabels [Polyline Feature Class]')
-        print('Please Provide Polyline Feature Class ')
-        raise ValueError('Incorrect Parameters')
+    parser=argparse.ArgumentParser()
+    parser.add_argument('Input_File', help='Feature Class Containing Polyline Features(Include File Extension)')
+    parser.add_argument('Field_Name', help='Name Of Column Holding Values To Be Used As Labels')
+    parser.add_argument('UTM_Zone', help='UTM Zone Where The Input File Lies')
+    parser.add_argument('--Data_Folder', default='Data', help='Folder Containing Data Files')
+    args=parser.parse_args()
+    main()
