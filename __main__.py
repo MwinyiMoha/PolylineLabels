@@ -36,41 +36,39 @@ class PolylineLabels:
         if os.path.exists(self.polylineCAD):
             os.remove(self.polylineCAD)
 
-    def writeCAD(self, fid, value, coords):
-        print('Writing Feature With ID: {}...'.format(fid))
+    def writeCAD(self):
+        print('Reading Polyline Feature Class...')
 
         drawing = dxf.drawing(self.polylineCAD)
-        if fid==0:
-            drawing.add_layer('POLYLINES', color=2)
-            drawing.add_layer('LABELS', color=2)
-
-        drawing.add(dxf.polyline(coords, layer='POLYLINES'))
-        drawing.add(dxf.text(value, insert=LineString(coords).centroid, layer='LABELS'))
-        drawing.save()
-
-    def getData(self):
-        print('Reading Polyline Feature Class...')
+        drawing.add_layer('POLYLINES', color=2)
+        drawing.add_layer('LABELS', color=2)
 
         UTM=Proj()
         with gdf.from_file(self.polylineFeatures) as df:
             df.to_crs(UTM)
             for rec in df.iterfeatures():
-                fid, value, coords=rec['id'], rec['properties'][self.valueColumn], rec['geometry']['coordinates']
-                writeCAD(fid, value, coords)
+                print('Writing Feature With ID: {}...'.format(fid))
+
+                value, coords=rec['properties'][self.valueColumn], rec['geometry']['coordinates']
+                drawing.add(dxf.polyline(coords, layer='POLYLINES'))
+                drawing.add(dxf.text(value, insert=LineString(coords).centroid, layer='LABELS'))
+                drawing.save()
 
         print('Script Completed')
         print('Output File: {}'.format(os.path.abspath(self.polylineCAD)))
 
+
 def main():
     Labels=PolylineLabels()
     Labels.dataConfig()
-    Labels.getData()
+    Labels.writeCAD()
 
 if __name__ == '__main__':
     parser=argparse.ArgumentParser()
     parser.add_argument('Input_File', help='Feature Class Containing Polyline Features(Include File Extension)')
     parser.add_argument('Field_Name', help='Name Of Column Holding Values To Be Used As Labels')
     parser.add_argument('UTM_Zone', help='UTM Zone Where The Input File Lies')
+    parser.add_argument('--Datum', default='wgs-84', help='Datum For The Projection System')
     parser.add_argument('--Data_Folder', default='Data', help='Folder Containing Data Files')
     args=parser.parse_args()
     main()
