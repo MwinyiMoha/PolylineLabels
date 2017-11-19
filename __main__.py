@@ -10,9 +10,9 @@ import argparse
 import os
 import time
 from pyproj import Proj
-from geopandas import GeoDataFrame as gdf
+import geopandas as gpd
 from dxfwrite import DXFEngine as dxf
-from Shapely.Geometry import LineString
+from shapely.geometry import LineString, mapping
 
 class PolylineLabels:
     def __init__(self):
@@ -34,6 +34,7 @@ class PolylineLabels:
         if not os.path.exists(self.polylineFeatures):
             raise ValueError('Polyline Feature Class Not Found')
         if os.path.exists(self.polylineCAD):
+            print('Output File Exists: Removing...')
             os.remove(self.polylineCAD)
 
     def writeCAD(self):
@@ -43,16 +44,21 @@ class PolylineLabels:
         drawing.add_layer('POLYLINES', color=2)
         drawing.add_layer('LABELS', color=2)
 
-        UTM=Proj()
-        with gdf.from_file(self.polylineFeatures) as df:
-            df.to_crs(UTM)
-            for rec in df.iterfeatures():
-                print('Writing Feature With ID: {}...'.format(fid))
+        UTM=Proj(proj='utm', zone=int(args.UTM_Zone), ellps=args.Datum)
+        #Code for reprojection in case features are in GCS
 
-                value, coords=rec['properties'][self.valueColumn], rec['geometry']['coordinates']
-                drawing.add(dxf.polyline(coords, layer='POLYLINES'))
-                drawing.add(dxf.text(value, insert=LineString(coords).centroid, layer='LABELS'))
-                drawing.save()
+        df=gpd.read_file(self.polylineFeatures)
+        for rec in df.iterfeatures():
+            print('Writing Feature With ID: {}...'.format(rec['properties']['ID']))
+
+            value, coords=rec['properties'][self.valueColumn], rec['geometry']['coordinates']
+            centroid=mapping(LineString(coords).centroid)
+            xy=centroid['coordinates']
+            drawing.add(dxf.polyline(coords, layer='POLYLINES'))
+            drawing.add(dxf.text(value, insert=xy, layer='LABELS'))
+            #Code to control text size
+            
+            drawing.save()
 
         print('Script Completed')
         print('Output File: {}'.format(os.path.abspath(self.polylineCAD)))
@@ -68,7 +74,7 @@ if __name__ == '__main__':
     parser.add_argument('Input_File', help='Feature Class Containing Polyline Features(Include File Extension)')
     parser.add_argument('Field_Name', help='Name Of Column Holding Values To Be Used As Labels')
     parser.add_argument('UTM_Zone', help='UTM Zone Where The Input File Lies')
-    parser.add_argument('--Datum', default='wgs-84', help='Datum For The Projection System')
+    parser.add_argument('--Datum', default='WGS84', help='Datum For The Projection System')
     parser.add_argument('--Data_Folder', default='Data', help='Folder Containing Data Files')
     args=parser.parse_args()
     main()
